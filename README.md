@@ -71,8 +71,6 @@ nes
 - **[3]**: Delete version
 - **[Backspace]**: Cancel / Return
 
-![Menu Mockup](assets/menu_mockup.png)
-
 ---
 
 ## Portable Architecture

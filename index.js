@@ -10,6 +10,20 @@ const { spawn, execSync } = require('child_process');
 const https = require('https');
 const AdmZip = require('adm-zip');
 
+function rmrf(dir) {
+  if (fs.existsSync(dir)) {
+    if (fs.rmSync) fs.rmSync(dir, { recursive: true, force: true });
+    else {
+      fs.readdirSync(dir).forEach(f => {
+        const cur = path.join(dir, f);
+        if (fs.statSync(cur).isDirectory()) rmrf(cur);
+        else fs.unlinkSync(cur);
+      });
+      fs.rmdirSync(dir);
+    }
+  }
+}
+
 // --- SYSTEM AND CONFIGURATION ---
 const NGN_HOME = __dirname;
 const NGN_VERSIONS = path.join(NGN_HOME, 'versions');
@@ -130,7 +144,7 @@ async function installNodeTarget(version) {
   if (!cleanVer) return console.log(chalk.red('Invalid version.'));
 
   const targetDir = path.join(NGN_VERSIONS, `v${cleanVer}`);
-  if (fs.existsSync(targetDir)) return console.log(chalk.yellow(`Node.js v${cleanVer} already installed.`));
+  if (fs.existsSync(targetDir)) return console.log(chalk.yellow(`\nNode.js v${cleanVer} already installed.`));
 
   const zipFile = path.join(NGN_HOME, `node-v${cleanVer}.zip`);
   const urls = [
@@ -163,14 +177,14 @@ async function installNodeTarget(version) {
       zip.extractAllTo(extractTemp, true);
     } catch (zipErr) {
       if (fs.existsSync(zipFile)) fs.unlinkSync(zipFile);
-      if (fs.existsSync(extractTemp)) fs.rmSync(extractTemp, { recursive: true, force: true });
+      if (fs.existsSync(extractTemp)) rmrf(extractTemp);
       return console.log(chalk.red(`\n[Error] Error: Failed to extract (Invalid ZIP source for v${cleanVer})`));
     }
 
     const innerFolder = path.join(extractTemp, `node-v${cleanVer}-win-x64`);
     if (!fs.existsSync(innerFolder)) {
       if (fs.existsSync(zipFile)) fs.unlinkSync(zipFile);
-      if (fs.existsSync(extractTemp)) fs.rmSync(extractTemp, { recursive: true, force: true });
+      if (fs.existsSync(extractTemp)) rmrf(extractTemp);
       return console.log(chalk.red(`\n[Error] Error: ZIP structure mismatch for v${cleanVer}`));
     }
 
@@ -193,7 +207,7 @@ async function installNodeTarget(version) {
 
     if (!moved) throw new Error("Could not move extracted files after 3 attempts.");
 
-    fs.rmSync(extractTemp, { recursive: true, force: true });
+    rmrf(extractTemp);
     if (fs.existsSync(zipFile)) fs.unlinkSync(zipFile);
     console.log(chalk.green(`\n[OK] Successfully installed Node v${cleanVer}!`));
 
@@ -211,14 +225,14 @@ async function useNodeTarget(version) {
   const cleanVer = semver.clean(version.startsWith('v') ? version : 'v' + version);
   if (!cleanVer) return;
   const targetDir = path.join(NGN_VERSIONS, `v${cleanVer}`);
-  if (!fs.existsSync(targetDir)) return console.log(chalk.red(`Version not installed.`));
+  if (!fs.existsSync(targetDir)) return console.log(chalk.red(`\nVersion not installed.`));
 
   try {
     if (fs.existsSync(NGN_CURRENT)) fs.unlinkSync(NGN_CURRENT);
     fs.symlinkSync(targetDir, NGN_CURRENT, 'junction');
-    console.log(chalk.green(`[OK] Activated Node.js v${cleanVer}!`));
+    console.log(chalk.green(`\n[OK] Activated Node.js v${cleanVer}!`));
     console.log(chalk.gray(`(Note: Ensure '${NGN_CURRENT}' is in your PATH. Running 'nes --setup' can help.)`));
-  } catch (e) { console.log(chalk.red(`[Error] Error: ${e.message}`)); }
+  } catch (e) { console.log(chalk.red(`\n[Error] Error: ${e.message}`)); }
 }
 
 async function uninstallNode(version) {
@@ -231,9 +245,9 @@ async function uninstallNode(version) {
 
   console.log(chalk.yellow(`\nUninstalling ${targetVer} (Safe Move)...`));
 
-  // 1. Kill Node processes first
-  const killCmd = `powershell -NoProfile -Command "Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '${path.resolve(targetPath).replace(/'/g, "''")}*' } | Stop-Process -Force"`;
-  try { execSync(killCmd, { stdio: 'ignore' }); } catch (e) { }
+  // 1. Kill Node processes first - suppress ALL output
+  const killCmd = `powershell -NoProfile -NonInteractive -Command "$null = Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object { \\$_.Path -like '${path.resolve(targetPath).replace(/'/g, "''")}*' } | Stop-Process -Force"`;
+  execSync(killCmd, { stdio: 'ignore', windowsHide: true });
 
   await new Promise(r => setTimeout(r, 400));
 
@@ -246,9 +260,9 @@ async function uninstallNode(version) {
     fs.renameSync(targetPath, trashPath);
     console.log(chalk.green('[OK] Successfully uninstalled (Moved to trash)'));
   } catch (err) {
-    // If move fails, try direct deletion as fallback
-    const rmCmd = `powershell -NoProfile -Command "Remove-Item -Path '${targetPath}' -Recurse -Force -ErrorAction SilentlyContinue"`;
-    try { execSync(rmCmd, { stdio: 'ignore' }); } catch (e) { }
+    // If move fails, try direct deletion as fallback - suppress ALL output
+    const rmCmd = `powershell -NoProfile -NonInteractive -Command "$null = Remove-Item -Path '${targetPath}' -Recurse -Force -ErrorAction SilentlyContinue"`;
+    execSync(rmCmd, { stdio: 'ignore', windowsHide: true });
 
     if (!fs.existsSync(targetPath)) console.log(chalk.green('[OK] Successfully uninstalled.'));
     else console.log(chalk.red('[Error] Lock persists. Please close all VS Code instances and try again.'));
@@ -258,8 +272,8 @@ async function uninstallNode(version) {
   try {
     if (fs.existsSync(trashBase)) {
       // Use hidden background process for cleanup to not block UI
-      const silentRm = `powershell -NoProfile -Command "Remove-Item -Path '${trashBase}\\*' -Recurse -Force -ErrorAction SilentlyContinue"`;
-      execSync(silentRm, { stdio: 'ignore' });
+      const silentRm = `powershell -NoProfile -NonInteractive -Command "$null = Remove-Item -Path '${trashBase}\\*' -Recurse -Force -ErrorAction SilentlyContinue"`;
+      execSync(silentRm, { stdio: 'ignore', windowsHide: true });
     }
   } catch (e) { /* Silent skip */ }
 }
@@ -305,7 +319,8 @@ async function doEnvironmentSync() {
 }
 
 function clearHost() {
-  process.stdout.write('\u001b[2J\u001b[H');
+  // Full terminal reset: clear screen, reset cursor, reset all attributes
+  process.stdout.write('\u001b[2J\u001b[H\u001b[0m');
 }
 
 // --- INTERACTIVE SELECTOR ---
@@ -326,13 +341,15 @@ async function doNodeManager() {
   });
   const majors = Object.keys(majorMap).map(Number).sort((a, b) => b - a);
   let index = 0;
+  let actionIndex = 0;
 
   const render = (msg = '', isSub = false) => {
     // Hide cursor
     process.stdout.write('\u001b[?25l');
 
-    // Always anchor to home (0,0) without reset to prevent flicker
+    // Clear screen and reset cursor to home
     readline.cursorTo(process.stdout, 0, 0);
+    readline.clearScreenDown(process.stdout);
 
     let output = '';
     output += chalk.bold.magenta('=== NODE.JS ENGINES MANAGER ===\n');
@@ -375,15 +392,21 @@ async function doNodeManager() {
     if (isSub) {
       const m = majors[index];
       const local = installed.find(l => semver.major(semver.clean(l.version)) === m);
-      output += chalk.green(`[1]${local ? 'Use' : 'Install'} ` + chalk.cyan(`[2]Update `)) + chalk.red( `[3]Delete `) + chalk.gray('[Backspace]Return');
+      const opt1 = local ? 'Use' : 'Install';
+      const act0 = actionIndex === 0 ? chalk.bgWhite.black('[1]' + opt1) : chalk.green('[1]' + opt1);
+      const act1 = actionIndex === 1 ? chalk.bgWhite.black('[2]Update') : chalk.cyan('[2]Update');
+      const act2 = actionIndex === 2 ? chalk.bgWhite.black('[3]Delete') : chalk.red('[3]Delete');
+      output += act0 + ' ' + act1 + ' ' + act2 + String.raw`
+`;
+      output += chalk.yellow('[←/→]Nav ') + chalk.green('[Enter]Exec ') + chalk.gray('[Backspace]Return');
     } else {
       output += (msg ? msg + '  ' : '');
       output += chalk.yellow('[↑/↓]Nav ') + chalk.green('[Enter]Menu ') + chalk.gray('[Backspace]Return');
     }
 
-    // Final atomic flush
+    // Final atomic flush - add padding to clear old content
+    readline.cursorTo(process.stdout, 0, 0);
     process.stdout.write(output);
-    readline.clearScreenDown(process.stdout);
     process.stdout.write('\u001b[?25h');
   };
 
@@ -430,16 +453,22 @@ async function doNodeManager() {
           resolve(); return false;
         };
 
-        if (key.name === '1' || key.name === '2' || key.name === '3') {
+        const isActionKey = key.name === 'return' || (key.name >= '1' && key.name <= '3');
+        const keyAction = key.name === 'return' ? actionIndex : parseInt(key.name) - 1;
+        
+        if (isActionKey) {
+          if (key.name >= '1' && key.name <= '3') actionIndex = parseInt(key.name) - 1;
+          
           isLocked = true;
           process.stdin.setRawMode(false);
 
           try {
-            if (key.name === '1') {
-              if (local) await useNodeTarget(local.version); else await installNodeTarget(n.version);
-            } else if (key.name === '2') {
-              await installNodeTarget(n.version); await useNodeTarget(n.version);
-            } else if (key.name === '3') {
+            if (keyAction === 0) {
+              if (local) await useNodeTarget(local.version);
+              else await installNodeTarget(n.version);
+            } else if (keyAction === 1) {
+              await installNodeTarget(n.version);
+            } else if (keyAction === 2) {
               if (local) await uninstallNode(local.version);
               else console.log(chalk.red('[Warning] Not installed.'));
             }
@@ -447,11 +476,17 @@ async function doNodeManager() {
             console.log(chalk.red(`\n[Error] Action Error: ${err.message}`));
           } finally {
             await confirmContinue();
-            // Ensure state is reset if confirmContinue exits or fails
             isLocked = false;
             subMenuMode = false;
+            actionIndex = 0;
           }
           return;
+        } else if (key.name === 'left') {
+          actionIndex = actionIndex > 0 ? actionIndex - 1 : 2;
+          render('', true);
+        } else if (key.name === 'right') {
+          actionIndex = actionIndex < 2 ? actionIndex + 1 : 0;
+          render('', true);
         } else if (key.name === 'backspace') {
           subMenuMode = false; statusMsg = '';
           clearHost();
@@ -469,6 +504,7 @@ async function doNodeManager() {
           render(statusMsg);
         } else {
           subMenuMode = true;
+          actionIndex = 0;
           render('', true);
         }
       }
