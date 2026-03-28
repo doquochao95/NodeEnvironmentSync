@@ -1,0 +1,15 @@
+{
+  "name": "nodeenvironmentsync",
+  "version": "1.0.0",
+  "description": "Node-Environment Sync (NES) Portable Manager",
+  "main": "index.js",
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "chalk": "^4.1.2",
+    "cli-table3": "^0.6.5",
+    "semver": "^7.7.4"
+  },
+  "bin": {
+    "nes": "index.js"
+  }
+}

@@ -1,0 +1,54 @@
+<svg width="1200" height="400" viewBox="0 0 1200 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Complex Glow Filters -->
+    <filter id="ultraGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="15" result="blur" />
+      <feFlood flood-color="#339933" flood-opacity="0.3" result="colorNode" />
+      <feComposite in="colorNode" in2="blur" operator="in" result="glowNode" />
+      
+      <feFlood flood-color="#DD0031" flood-opacity="0.3" result="colorAng" />
+      <feComposite in="colorAng" in2="blur" operator="in" result="glowAng" />
+      
+      <feMerge>
+        <feMergeNode in="glowNode" />
+        <feMergeNode in="glowAng" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <linearGradient id="softGradient" x1="0%" y1="50%" x2="100%" y2="50%">
+      <stop offset="0%" style="stop-color:#339933;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#F69220;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Background Nebula/Smoke effect circles -->
+    <radialGradient id="nebulaNode" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#339933;stop-opacity:0.2" />
+      <stop offset="100%" style="stop-color:#339933;stop-opacity:0" />
+    </radialGradient>
+    <radialGradient id="nebulaAng" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#DD0031;stop-opacity:0.15" />
+      <stop offset="100%" style="stop-color:#DD0031;stop-opacity:0" />
+    </radialGradient>
+  </defs>
+
+  <!-- Background Glows (Blurred Nebula Soft) -->
+  <circle cx="450" cy="180" r="180" fill="url(#nebulaNode)" />
+  <circle cx="750" cy="220" r="220" fill="url(#nebulaAng)" />
+
+  <!-- Main Title NES -->
+  <text x="50%" y="220" font-family="'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif" font-size="160" font-weight="900" text-anchor="middle" fill="url(#softGradient)" filter="url(#ultraGlow)" style="letter-spacing: 24px; pointer-events: none;">NES</text>
+  
+  <!-- Subtle Subtitle -->
+  <text x="50%" y="300" font-family="'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif" font-size="28" font-weight="100" text-anchor="middle" fill="#999" style="letter-spacing: 14px; text-transform: uppercase; opacity: 0.8;">Node Environment Sync</text>
+
+  <!-- Dust Particles (Li ti) -->
+  <circle cx="300" cy="150" r="1.5" fill="#339933" opacity="0.6" />
+  <circle cx="400" cy="280" r="2" fill="#DD0031" opacity="0.4" />
+  <circle cx="850" cy="120" r="1.2" fill="#F69220" opacity="0.5" />
+  <circle cx="1000" cy="250" r="2.5" fill="#339933" opacity="0.3" />
+  <circle cx="200" cy="320" r="1" fill="#fff" opacity="0.2" />
+  
+  <!-- Minimalist Divider -->
+  <rect x="520" y="340" width="160" height="1" fill="url(#softGradient)" opacity="0.3" rx="0.5" />
+</svg>
