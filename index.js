@@ -211,6 +211,21 @@ async function installNodeTarget(version) {
     if (fs.existsSync(zipFile)) fs.unlinkSync(zipFile);
     console.log(chalk.green(`\n[OK] Successfully installed Node v${cleanVer}!`));
 
+    // Auto-delete old versions with same major
+    const newMajor = semver.major(cleanVer);
+    const currentActive = fs.existsSync(NGN_CURRENT) ? fs.realpathSync(NGN_CURRENT) : '';
+    const installed = getInstalledNodes();
+    
+    for (const node of installed) {
+      const nodeVer = semver.clean(node.version);
+      if (nodeVer === cleanVer) continue;
+      if (semver.major(nodeVer) !== newMajor) continue;
+      if (currentActive.includes(node.path)) continue;
+      
+      console.log(chalk.gray(`  Removing old v${nodeVer}...`));
+      rmrf(node.path);
+    }
+
     const npmCmd = path.join(targetDir, 'npm.cmd');
     for (const pkg of nesConfig.managed_packages) {
       const best = findBestVersion(pkg, cleanVer);

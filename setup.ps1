@@ -11,6 +11,116 @@ Write-Host "==========================================================" -Foregro
 Write-Host "   NES (Node-Environment Sync) AUTOMATIC BOOTSTRAP             " -ForegroundColor Magenta
 Write-Host "==========================================================" -ForegroundColor Magenta
 
+# 0. Migration: Migrate data from old NVM (if exists) - BEFORE cleanup
+Write-Host "[Optional] Checking for legacy NVM data migration..." -ForegroundColor Cyan
+$nvmHome = $null
+$possibleNvmPaths = @(
+    "$env:APPDATA\nvm",
+    "C:\Program Files\nvm",
+    "C:\Program Files (x86)\nvm"
+)
+
+foreach ($p in $possibleNvmPaths) {
+    if (Test-Path $p) {
+        $nvmHome = $p
+        break
+    }
+}
+
+if (-not $nvmHome) {
+    $nvmHome = [Environment]::GetEnvironmentVariable("NVM_HOME", "User")
+    if (-not $nvmHome) { $nvmHome = [Environment]::GetEnvironmentVariable("NVM_HOME", "Machine") }
+}
+
+if ($nvmHome -and (Test-Path $nvmHome)) {
+    Write-Host "  Found: $nvmHome" -ForegroundColor Yellow
+    Write-Host "  Migrating existing Node.js versions..." -ForegroundColor Yellow
+    
+    if (-not (Test-Path $versionsDir)) {
+        New-Item -ItemType Directory -Path $versionsDir | Out-Null
+    }
+    
+    $nvmDirs = Get-ChildItem -Path $nvmHome -Directory
+    foreach ($dir in $nvmDirs) {
+        $destNodeDir = Join-Path $versionsDir $dir.Name
+        if (-not (Test-Path $destNodeDir)) {
+            Write-Host "    Migrating: $($dir.Name)..." -ForegroundColor Yellow
+            Copy-Item -Path $dir.FullName -Destination $destNodeDir -Recurse -Force
+            Write-Host "    Done" -ForegroundColor Green
+        }
+    }
+    Write-Host "  Migration completed" -ForegroundColor Green
+} else {
+    Write-Host "  No legacy NVM found" -ForegroundColor Gray
+}
+
+# NVM Cleanup: Remove NVM completely after migration
+Write-Host "[NVM Cleanup] Removing legacy NVM..." -ForegroundColor Cyan
+
+$nvmCleanupDone = $false
+
+# 1. Remove NVM directory
+if ($nvmHome -and (Test-Path $nvmHome)) {
+    Remove-Item -Path $nvmHome -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Host "  Removed NVM directory" -ForegroundColor Green
+    $nvmCleanupDone = $true
+}
+
+# 2. Remove NVM environment variables
+$nvmVars = @("NVM_HOME", "NVM_SYMLINK")
+foreach ($var in $nvmVars) {
+    $userVal = [Environment]::GetEnvironmentVariable($var, "User")
+    if ($userVal) {
+        [Environment]::SetEnvironmentVariable($var, $null, "User")
+        Write-Host "  Removed User variable: $var" -ForegroundColor Green
+        $nvmCleanupDone = $true
+    }
+}
+
+# 3. Clean NVM entries from PATH
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+$originalPath = $userPath
+$userPath = ($userPath -split ';' | Where-Object { 
+    $_ -notmatch 'nvm' -and $_ -notmatch 'nvmHome' -and $_ -notmatch 'nvmSymlink'
+}) -join ';'
+
+if ($userPath -ne $originalPath) {
+    [Environment]::SetEnvironmentVariable("Path", $userPath, "User")
+    Write-Host "  Cleaned PATH entries" -ForegroundColor Green
+    $nvmCleanupDone = $true
+}
+
+# 4. Remove Node from Program Files (installed by NVM)
+$nodePaths = @("C:\Program Files\nodejs", "C:\Program Files (x86)\nodejs")
+foreach ($np in $nodePaths) {
+    if (Test-Path $np) {
+        Remove-Item -Path $np -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "  Removed Node from: $np" -ForegroundColor Green
+        $nvmCleanupDone = $true
+    }
+}
+
+# 5. Remove registry keys
+$regPaths = @("HKCU:\Software\nodejs", "HKLM:\Software\nodejs")
+foreach ($rp in $regPaths) {
+    if (Test-Path $rp) {
+        Remove-Item -Path $rp -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "  Removed registry: $rp" -ForegroundColor Green
+        $nvmCleanupDone = $true
+    }
+}
+
+if ($nvmCleanupDone) {
+    Write-Host "  NVM cleanup completed!" -ForegroundColor Green
+} else {
+    Write-Host "  No NVM installation to clean" -ForegroundColor Gray
+}
+
+Write-Host ""
+Write-Host "==========================================================" -ForegroundColor Magenta
+Write-Host "   NES SETUP                                           " -ForegroundColor Magenta
+Write-Host "==========================================================" -ForegroundColor Magenta
+
 # 1. Create necessary directories
 Write-Host "[1/6] Checking version storage directory..." -ForegroundColor Cyan
 if (-not (Test-Path $versionsDir)) {
@@ -98,28 +208,6 @@ if ($newPath -ne $userPath) {
     Write-Host "  PATH updated successfully" -ForegroundColor Green
 } else {
     Write-Host "  PATH already configured" -ForegroundColor Gray
-}
-
-# Migration: Migrate data from old NVM (if exists)
-Write-Host "[Optional] Checking for legacy NVM..." -ForegroundColor Cyan
-$nvmHome = [Environment]::GetEnvironmentVariable("NVM_HOME", "User")
-if ($null -eq $nvmHome) { $nvmHome = [Environment]::GetEnvironmentVariable("NVM_HOME", "Machine") }
-
-if ($null -ne $nvmHome -and (Test-Path $nvmHome)) {
-    Write-Host "  Found: $nvmHome" -ForegroundColor Yellow
-    Write-Host "  Migrating existing Node.js versions..." -ForegroundColor Yellow
-    
-    $nvmDirs = Get-ChildItem -Path $nvmHome -Directory
-    foreach ($dir in $nvmDirs) {
-        $destNodeDir = Join-Path $versionsDir $dir.Name
-        if (-not (Test-Path $destNodeDir)) {
-            Write-Host "    Migrating: $($dir.Name)..." -ForegroundColor Yellow
-            Copy-Item -Path $dir.FullName -Destination $destNodeDir -Recurse -Force
-            Write-Host "    Done" -ForegroundColor Green
-        }
-    }
-} else {
-    Write-Host "  No legacy NVM found" -ForegroundColor Gray
 }
 
 # Finalization: Create nes.cmd
