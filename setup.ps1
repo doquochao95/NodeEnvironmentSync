@@ -11,42 +11,102 @@ Write-Host "==========================================================" -Foregro
 Write-Host "   NES (Node-Environment Sync) AUTOMATIC BOOTSTRAP             " -ForegroundColor Magenta
 Write-Host "==========================================================" -ForegroundColor Magenta
 
-# 0. Migration: Migrate data from old NVM (if exists) - BEFORE cleanup
-Write-Host "[Optional] Checking for legacy NVM data migration..." -ForegroundColor Cyan
-$nvmHome = $null
-$possibleNvmPaths = @(
-    "$env:APPDATA\nvm",
-    "C:\Program Files\nvm",
-    "C:\Program Files (x86)\nvm"
-)
-
-foreach ($p in $possibleNvmPaths) {
-    if (Test-Path $p) {
-        $nvmHome = $p
-        break
+# --- FUNCTION: Find all NVM installations ---
+function Find-NvmInstallations {
+    $foundPaths = @()
+    
+    # 1. Common paths (current user)
+    $commonPaths = @(
+        "$env:APPDATA\nvm",
+        "$env:LOCALAPPDATA\nvm",
+        "C:\Program Files\nvm",
+        "C:\Program Files (x86)\nvm"
+    )
+    foreach ($p in $commonPaths) {
+        if ($p -and (Test-Path $p)) { $foundPaths += $p }
     }
+    
+    # 2. Environment variables
+    $envVars = @("NVM_HOME", "NVM_SYMLINK")
+    foreach ($var in $envVars) {
+        $val = [Environment]::GetEnvironmentVariable($var, "User")
+        if (-not $val) { $val = [Environment]::GetEnvironmentVariable($var, "Machine") }
+        if ($val -and (Test-Path $val) -and $foundPaths -notcontains $val) { 
+            $foundPaths += $val 
+        }
+    }
+    
+    # 3. Search in all users' AppData directories
+    $usersDir = "C:\Users"
+    if (Test-Path $usersDir) {
+        Get-ChildItem -Path $usersDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $userAppData = Join-Path $_.FullName "AppData\Roaming\nvm"
+            if (Test-Path $userAppData) {
+                $foundPaths += $userAppData
+            }
+        }
+    }
+    
+    # 4. Search via registry
+    try {
+        $regPaths = @(
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+            "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+            "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+        )
+        foreach ($rp in $regPaths) {
+            if (Test-Path $rp) {
+                Get-ChildItem -Path $rp -ErrorAction SilentlyContinue | ForEach-Object {
+                    $displayName = (Get-ItemProperty -Path $_.PSPath -ErrorAction SilentlyContinue).DisplayName
+                    $installLocation = (Get-ItemProperty -Path $_.PSPath -ErrorAction SilentlyContinue).InstallLocation
+                    if ($displayName -match "NVM" -and $installLocation -and (Test-Path $installLocation)) {
+                        if ($foundPaths -notcontains $installLocation) {
+                            $foundPaths += $installLocation
+                        }
+                    }
+                }
+            }
+        }
+    } catch {}
+    
+    # 5. Search via nvm.exe
+    $nvmCmd = Get-Command nvm.exe -ErrorAction SilentlyContinue
+    if ($nvmCmd) {
+        $nvmExePath = Split-Path $nvmCmd.Source -Parent
+        if (Test-Path $nvmExePath) {
+            $foundPaths += $nvmExePath
+        }
+    }
+    
+    return $foundPaths | Select-Object -Unique
 }
 
-if (-not $nvmHome) {
-    $nvmHome = [Environment]::GetEnvironmentVariable("NVM_HOME", "User")
-    if (-not $nvmHome) { $nvmHome = [Environment]::GetEnvironmentVariable("NVM_HOME", "Machine") }
-}
+# --- MIGRATION SECTION ---
+Write-Host "[Optional] Checking for legacy NVM data migration..." -ForegroundColor Cyan
+$allNvmPaths = Find-NvmInstallations
 
-if ($nvmHome -and (Test-Path $nvmHome)) {
-    Write-Host "  Found: $nvmHome" -ForegroundColor Yellow
-    Write-Host "  Migrating existing Node.js versions..." -ForegroundColor Yellow
+if ($allNvmPaths.Count -gt 0) {
+    Write-Host "  Found $($allNvmPaths.Count) NVM installation(s)" -ForegroundColor Yellow
     
     if (-not (Test-Path $versionsDir)) {
         New-Item -ItemType Directory -Path $versionsDir | Out-Null
     }
     
-    $nvmDirs = Get-ChildItem -Path $nvmHome -Directory
-    foreach ($dir in $nvmDirs) {
-        $destNodeDir = Join-Path $versionsDir $dir.Name
-        if (-not (Test-Path $destNodeDir)) {
-            Write-Host "    Migrating: $($dir.Name)..." -ForegroundColor Yellow
-            Copy-Item -Path $dir.FullName -Destination $destNodeDir -Recurse -Force
-            Write-Host "    Done" -ForegroundColor Green
+    foreach ($nvmHome in $allNvmPaths) {
+        Write-Host "  Processing: $nvmHome" -ForegroundColor Yellow
+        
+        if (Test-Path $nvmHome) {
+            $nvmDirs = Get-ChildItem -Path $nvmHome -Directory -ErrorAction SilentlyContinue
+            foreach ($dir in $nvmDirs) {
+                if ($dir.Name -match '^v\d+') {
+                    $destNodeDir = Join-Path $versionsDir $dir.Name
+                    if (-not (Test-Path $destNodeDir)) {
+                        Write-Host "    Migrating: $($dir.Name)..." -ForegroundColor Yellow
+                        Copy-Item -Path $dir.FullName -Destination $destNodeDir -Recurse -Force
+                        Write-Host "    Done" -ForegroundColor Green
+                    }
+                }
+            }
         }
     }
     Write-Host "  Migration completed" -ForegroundColor Green
@@ -54,67 +114,94 @@ if ($nvmHome -and (Test-Path $nvmHome)) {
     Write-Host "  No legacy NVM found" -ForegroundColor Gray
 }
 
-# NVM Cleanup: Remove NVM completely after migration
-Write-Host "[NVM Cleanup] Removing legacy NVM..." -ForegroundColor Cyan
+# --- NVM CLEANUP SECTION ---
+Write-Host "[NVM Cleanup] Removing all NVM installations..." -ForegroundColor Cyan
 
-$nvmCleanupDone = $false
-
-# 1. Remove NVM directory
-if ($nvmHome -and (Test-Path $nvmHome)) {
-    Remove-Item -Path $nvmHome -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host "  Removed NVM directory" -ForegroundColor Green
-    $nvmCleanupDone = $true
-}
-
-# 2. Remove NVM environment variables
-$nvmVars = @("NVM_HOME", "NVM_SYMLINK")
-foreach ($var in $nvmVars) {
-    $userVal = [Environment]::GetEnvironmentVariable($var, "User")
-    if ($userVal) {
-        [Environment]::SetEnvironmentVariable($var, $null, "User")
-        Write-Host "  Removed User variable: $var" -ForegroundColor Green
-        $nvmCleanupDone = $true
+# 1. Remove all NVM directories found
+foreach ($nvmHome in $allNvmPaths) {
+    if ($nvmHome -and (Test-Path $nvmHome)) {
+        Write-Host "  Removing: $nvmHome" -ForegroundColor Yellow
+        Remove-Item -Path $nvmHome -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
-# 3. Clean NVM entries from PATH
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-$originalPath = $userPath
-$userPath = ($userPath -split ';' | Where-Object { 
-    $_ -notmatch 'nvm' -and $_ -notmatch 'nvmHome' -and $_ -notmatch 'nvmSymlink'
-}) -join ';'
+# 2. Remove NVM environment variables (all users via registry)
+Write-Host "  Cleaning environment variables..." -ForegroundColor Yellow
 
-if ($userPath -ne $originalPath) {
-    [Environment]::SetEnvironmentVariable("Path", $userPath, "User")
-    Write-Host "  Cleaned PATH entries" -ForegroundColor Green
-    $nvmCleanupDone = $true
+# Current user
+$nvmVars = @("NVM_HOME", "NVM_SYMLINK")
+foreach ($var in $nvmVars) {
+    $val = [Environment]::GetEnvironmentVariable($var, "User")
+    if ($val) {
+        [Environment]::SetEnvironmentVariable($var, $null, "User")
+    }
 }
 
-# 4. Remove Node from Program Files (installed by NVM)
+# Machine level (requires admin, but try anyway)
+try {
+    foreach ($var in $nvmVars) {
+        $val = [Environment]::GetEnvironmentVariable($var, "Machine")
+        if ($val) {
+            [Environment]::SetEnvironmentVariable($var, $null, "Machine")
+        }
+    }
+} catch {}
+
+# 3. Clean NVM entries from PATH (current user)
+Write-Host "  Cleaning PATH entries..." -ForegroundColor Yellow
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+$originalPath = $userPath
+$newPath = ($userPath -split ';' | Where-Object { 
+    $_ -notmatch '\\nvm' -and $_ -notmatch '\\nodejs'
+}) -join ';'
+
+if ($newPath -ne $originalPath) {
+    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+}
+
+# 4. Remove Node from Program Files
+Write-Host "  Removing Node.js from Program Files..." -ForegroundColor Yellow
 $nodePaths = @("C:\Program Files\nodejs", "C:\Program Files (x86)\nodejs")
 foreach ($np in $nodePaths) {
     if (Test-Path $np) {
         Remove-Item -Path $np -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host "  Removed Node from: $np" -ForegroundColor Green
-        $nvmCleanupDone = $true
     }
 }
 
 # 5. Remove registry keys
-$regPaths = @("HKCU:\Software\nodejs", "HKLM:\Software\nodejs")
+Write-Host "  Cleaning registry..." -ForegroundColor Yellow
+$regPaths = @(
+    "HKCU:\Software\nodejs",
+    "HKLM:\Software\nodejs",
+    "HKCU:\Software\NVM",
+    "HKLM:\Software\NVM"
+)
 foreach ($rp in $regPaths) {
     if (Test-Path $rp) {
         Remove-Item -Path $rp -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host "  Removed registry: $rp" -ForegroundColor Green
-        $nvmCleanupDone = $true
     }
 }
 
-if ($nvmCleanupDone) {
-    Write-Host "  NVM cleanup completed!" -ForegroundColor Green
-} else {
-    Write-Host "  No NVM installation to clean" -ForegroundColor Gray
-}
+# Remove NVM from Add/Programs
+try {
+    $uninstallPaths = @(
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+    )
+    foreach ($up in $uninstallPaths) {
+        if (Test-Path $up) {
+            Get-ChildItem -Path $up -ErrorAction SilentlyContinue | ForEach-Object {
+                $displayName = (Get-ItemProperty -Path $_.PSPath -ErrorAction SilentlyContinue).DisplayName
+                if ($displayName -match "NVM") {
+                    Remove-Item -Path $_.PSPath -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+    }
+} catch {}
+
+Write-Host "  NVM cleanup completed!" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Magenta
