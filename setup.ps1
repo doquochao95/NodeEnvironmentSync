@@ -230,13 +230,32 @@ if (-not (Test-Path $nesConfigPath)) {
 # 3. Check and download bootstrap Node.js
 Write-Host "[3/6] Checking Node.js installation..." -ForegroundColor Cyan
 $existingNode = $null
-if (Test-Path $versionsDir) {
-    $existingNode = Get-ChildItem -Path $versionsDir -Directory | Where-Object { $_.Name -match '^v\d+\.\d+\.\d+$' } | Select-Object -First 1
+$currentPath = Join-Path $currentDir "current"
+
+# First, check if current junction/symlink exists and is valid
+if (Test-Path $currentPath) {
+    try {
+        $junction = Get-Item $currentPath -Force
+        $target = $junction.Target
+        if ($target -and (Test-Path $target)) {
+            $existingNode = Get-Item $target
+            $nodeName = $existingNode.Name
+            Write-Host "  Found current: $nodeName" -ForegroundColor Green
+        }
+    } catch {}
+}
+
+# If no current, find the highest version in versions folder
+if (-not $existingNode -and (Test-Path $versionsDir)) {
+    $existingNode = Get-ChildItem -Path $versionsDir -Directory | 
+        Where-Object { $_.Name -match '^v\d+\.\d+\.\d+$' } |
+        Sort-Object { [version]($_.Name -replace '^v', '') } -Descending |
+        Select-Object -First 1
 }
 
 if ($existingNode) {
     $bootstrapPath = $existingNode.FullName
-    Write-Host "  Found: $($existingNode.Name) - Using as bootstrap" -ForegroundColor Green
+    Write-Host "  Using: $($existingNode.Name) as bootstrap" -ForegroundColor Green
 } elseif (-not (Test-Path $bootstrapPath)) {
     Write-Host "  Downloading Node.js v$bootstrapVersion..." -ForegroundColor Yellow
     $url = "https://nodejs.org/dist/v$bootstrapVersion/node-v$bootstrapVersion-win-x64.zip"
@@ -260,7 +279,6 @@ if ($existingNode) {
 
 # 4. Create 'current' junction link
 Write-Host "[4/6] Creating junction link..." -ForegroundColor Cyan
-$currentPath = Join-Path $currentDir "current"
 
 # Remove old junction if exists
 if (Test-Path $currentPath) {
