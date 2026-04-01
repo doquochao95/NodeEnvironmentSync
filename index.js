@@ -302,7 +302,7 @@ async function uninstallNode(version) {
 async function doEnvironmentSync() {
   const tools = nesConfig.managed_packages;
   const table = new Table({
-    head: [chalk.cyan('Node Version'), ...tools.map(t => chalk.cyan(t)), chalk.cyan('Status')],
+    head: [chalk.cyan('Major'), chalk.cyan('Recent'), ...tools.map(t => chalk.cyan(t)), chalk.cyan('Status')],
     chars: { top: '', 'top-mid': '', 'top-left': '', 'top-right': '', bottom: '', 'bottom-mid': '', 'bottom-left': '', 'bottom-right': '', left: '', 'left-mid': '', mid: '', 'mid-mid': '', right: '', 'right-mid': '', middle: ' ' },
     style: { head: ['cyan'], paddingLeft: 0, paddingRight: 1 }
   });
@@ -311,7 +311,8 @@ async function doEnvironmentSync() {
 
   nodes.forEach(node => {
     const nodeVer = semver.clean(node.version);
-    const row = [nodeVer]; let allOk = true; const missing = [];
+    const majorVer = semver.major(nodeVer);
+    const row = [`v${majorVer}`, nodeVer]; let allOk = true; const missing = [];
     tools.forEach(pkg => {
       const pkgPath = getToolPath(node.path, pkg);
       let curVer = null;
@@ -384,8 +385,8 @@ async function doNodeManager() {
     } catch (e) { }
 
     const table = new Table({
-      head: [chalk.cyan('Major'), chalk.cyan('Online'), chalk.cyan('Status'), chalk.cyan('Date'), chalk.cyan('Note')],
-      colWidths: [8, 14, 18, 12, 12],
+      head: [chalk.cyan('Major'), chalk.cyan('Recent'), chalk.cyan('Online'), chalk.cyan('Status'), chalk.cyan('Date'), chalk.cyan('Note')],
+      colWidths: [8, 14, 14, 18, 12, 12],
       chars: { top: '', 'top-mid': '', 'top-left': '', 'top-right': '', bottom: '', 'bottom-mid': '', 'bottom-left': '', 'bottom-right': '', left: '', 'left-mid': '', mid: '', 'mid-mid': '', right: '', 'right-mid': '', middle: ' ' },
       style: { head: ['cyan'], paddingLeft: 0, paddingRight: 1 }
     });
@@ -394,15 +395,17 @@ async function doNodeManager() {
       const n = majorMap[m];
       const onlineV = semver.clean(n.version);
       let status = chalk.gray('Not Installed'), note = '', prefix = (i === index) ? chalk.bold.magenta('>') : ' ';
+      let recentVer = chalk.gray('-');
       const local = installed.find(l => semver.major(semver.clean(l.version)) === m);
       if (local) {
         const cleanL = semver.clean(local.version);
-        status = cleanL === onlineV ? chalk.green('[Latest]') : chalk.yellow(`[Update ${cleanL}]`);
+        recentVer = cleanL;
+        status = cleanL === onlineV ? chalk.green('[Latest]') : chalk.yellow('[Update]');
         if (cleanL === curActive) note = chalk.green('Activated');
       } else if (n.unsupported) {
         status = chalk.red('[Unsupported]');
       }
-      const row = [`${prefix} v${m}`, onlineV, status, n.date || '-', note];
+      const row = [`${prefix} v${m}`, recentVer, onlineV, status, n.date || '-', note];
       if (i === index) table.push(row.map(c => chalk.bgWhite.black(c)));
       else table.push(row);
     });
