@@ -101,15 +101,21 @@ function findBestVersion(pkgName, nodeVersion) {
   if (!toolMap) return null;
   const sampleKey = Object.keys(toolMap)[0];
   if (!sampleKey) return null;
-  if (toolMap[sampleKey].includes('||') || toolMap[sampleKey].includes('>')) {
-    const versions = Object.keys(toolMap).map(v => parseInt(v)).sort((a, b) => b - a);
-    for (let v of versions) { if (semver.satisfies(nodeVersion, toolMap[v])) return v; }
-  } else {
-    const v = semver.coerce(nodeVersion);
-    if (!v) return null;
-    const majorNode = v.major;
-    const nodeMajors = Object.keys(toolMap).map(Number).sort((a, b) => b - a);
-    for (let m of nodeMajors) { if (majorNode >= m) return toolMap[m]; }
+
+  const v = semver.coerce(nodeVersion);
+  if (!v) return null;
+  const majorNode = v.major;
+
+  // Find the best version from highest node version that matches
+  const nodeMajors = Object.keys(toolMap).map(Number).sort((a, b) => b - a);
+  for (const m of nodeMajors) {
+    if (majorNode >= m) {
+      const pkgRange = toolMap[m];
+      // If range satisfies current node version, return the range (semver will pick latest)
+      if (semver.satisfies(nodeVersion, pkgRange)) {
+        return semver.major(semver.minVersion(pkgRange).version);
+      }
+    }
   }
   return null;
 }

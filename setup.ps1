@@ -261,12 +261,38 @@ if ($existingNode) {
 # 4. Create 'current' junction link
 Write-Host "[4/6] Creating junction link..." -ForegroundColor Cyan
 $currentPath = Join-Path $currentDir "current"
+
+# Remove old junction if exists
 if (Test-Path $currentPath) {
-    cmd /c "rmdir ""$currentPath"""
-    Write-Host "  Removed old junction" -ForegroundColor Gray
+    $removed = $false
+    
+    # Method 1: PowerShell Remove-Item
+    try {
+        Remove-Item -Path $currentPath -Force -Recurse -ErrorAction Stop
+        $removed = $true
+    } catch {}
+    
+    # Method 2: cmd with error suppression
+    if (-not $removed) {
+        $null = cmd /c "rmdir /q /s ""$currentPath""" 2>&1
+        Start-Sleep -Milliseconds 300
+    }
+    
+    if (Test-Path $currentPath) {
+        Write-Host "  Warning: Old junction exists but cannot be removed (may be in use)" -ForegroundColor Yellow
+        Write-Host "  Will recreate with new target" -ForegroundColor Yellow
+    } else {
+        Write-Host "  Removed old junction" -ForegroundColor Gray
+    }
 }
-New-Item -ItemType Junction -Path $currentPath -Target $bootstrapPath | Out-Null
-Write-Host "  Created: current -> $($bootstrapPath)" -ForegroundColor Green
+
+# Create new junction
+try {
+    New-Item -ItemType Junction -Path $currentPath -Target $bootstrapPath -Force | Out-Null
+    Write-Host "  Created: current -> $($bootstrapPath)" -ForegroundColor Green
+} catch {
+    Write-Host "  Error creating junction: $_" -ForegroundColor Red
+}
 
 # 5. Install NES dependencies
 Write-Host "[5/6] Installing NES dependencies..." -ForegroundColor Cyan
@@ -309,4 +335,4 @@ Write-Host "   NES INSTALLATION COMPLETE!                             " -Foregro
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host "Please RESTART your Terminal / VS Code / CMD to start using NES."
 Write-Host "Usage command: nes"
-pause
+Read-Host -Prompt "Press Enter to exit"
