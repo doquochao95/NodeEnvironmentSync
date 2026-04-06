@@ -208,6 +208,67 @@ Write-Host "==========================================================" -Foregro
 Write-Host "   NES SETUP                                           " -ForegroundColor Magenta
 Write-Host "==========================================================" -ForegroundColor Magenta
 
+Write-Host "[0/6] Checking for globally installed Node.js..." -ForegroundColor Cyan
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Host "  Note: You are not running as Administrator. Complete removal of global Node.js might fail." -ForegroundColor Yellow
+}
+
+$uninstallKeys = @(
+    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+    "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+)
+$nodeUninstalls = Get-ItemProperty $uninstallKeys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match "Node\.js" }
+
+foreach ($app in $nodeUninstalls) {
+    if ($app.UninstallString -match "msiexec") {
+        Write-Host "  Found MSI installation: $($app.DisplayName). Attempting silent uninstall..." -ForegroundColor Yellow
+        $guid = ($app.UninstallString -split '/[IX]')[1].Trim()
+        $process = Start-Process "msiexec.exe" -ArgumentList "/X $guid /qn" -Wait -NoNewWindow -PassThru -ErrorAction SilentlyContinue
+        if ($process -and $process.ExitCode -eq 0) {
+            Write-Host "  Successfully uninstalled $($app.DisplayName)." -ForegroundColor Green
+        } else {
+            Write-Host "  Failed to silently uninstall (maybe needs Admin). Try manual uninstall if issues persist." -ForegroundColor Red
+        }
+    }
+}
+
+$nodePaths = @("C:\Program Files\nodejs", "C:\Program Files (x86)\nodejs")
+foreach ($np in $nodePaths) {
+    if (Test-Path $np) {
+        Write-Host "  Removing Node.js folder at: $np" -ForegroundColor Yellow
+        Remove-Item -Path $np -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($userPath) {
+    $newUserPath = ($userPath -split ';' | Where-Object { $_ -notmatch '\\nodejs' }) -join ';'
+    if ($newUserPath -ne $userPath) {
+        [Environment]::SetEnvironmentVariable("Path", $newUserPath, "User")
+        Write-Host "  Removed Node.js from User PATH" -ForegroundColor Green
+    }
+}
+
+if ($isAdmin) {
+    try {
+        $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+        if ($machinePath) {
+            $newMachinePath = ($machinePath -split ';' | Where-Object { $_ -notmatch '\\nodejs' }) -join ';'
+            if ($newMachinePath -ne $machinePath) {
+                [Environment]::SetEnvironmentVariable("Path", $newMachinePath, "Machine")
+                Write-Host "  Removed Node.js from Machine PATH" -ForegroundColor Green
+            }
+        }
+    } catch {}
+} else {
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    if ($machinePath -match '\\nodejs') {
+        Write-Host "  WARNING: Node.js is in your System PATH but script lacks Admin rights to remove it." -ForegroundColor Red
+        Write-Host "  Please manually remove C:\Program Files\nodejs from System Environment Variables." -ForegroundColor Red
+    }
+}
+
 # 1. Create necessary directories
 Write-Host "[1/6] Checking version storage directory..." -ForegroundColor Cyan
 if (-not (Test-Path $versionsDir)) {
